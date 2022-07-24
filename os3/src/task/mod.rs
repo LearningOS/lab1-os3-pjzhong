@@ -93,8 +93,8 @@ lazy_static! {
             task_status: task::TaskStatus::UnInit,
         }; MAX_APP_NUM];
         for (i, t) in tasks.iter_mut().enumerate().take(num_app) {
-            tasks[i].task_cx = TaskContext::goto_restore(init_app_cx(i));
-            tasks[i].task_status = TaskStatus::Ready;
+            t.task_cx = TaskContext::goto_restore(init_app_cx(i));
+            t.task_status = TaskStatus::Ready;
         }
         TaskManager {
             num_app,
@@ -108,12 +108,12 @@ lazy_static! {
     };
 }
 
-pub fn suspend_cuurent_and_run_next() {
+pub fn suspend_current_and_run_next() {
     mark_current_suspended();
     run_next_task();
 }
 
-pub fn exit_cuurent_and_run_next() {
+pub fn exit_current_and_run_next() {
     mark_current_exited();
     run_next_task();
 }

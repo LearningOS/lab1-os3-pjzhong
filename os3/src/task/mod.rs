@@ -7,9 +7,10 @@ pub use task::TaskStatus;
 
 use self::{switch::__switch, task::TaskControlBlock};
 use crate::{
-    config::MAX_APP_NUM,
+    config::{MAX_APP_NUM, MAX_SYSCALL_NUM},
     loader::{get_num_app, init_app_cx},
     sync::UPSafeCell,
+    syscall::TaskInfo, timer::{get_time_us, get_time_ms},
 };
 use lazy_static::*;
 
@@ -30,6 +31,38 @@ fn run_next_task() {
     TASK_MANAGER.run_next_task();
 }
 
+pub fn suspend_current_and_run_next() {
+    mark_current_suspended();
+    run_next_task();
+}
+
+pub fn exit_current_and_run_next() {
+    mark_current_exited();
+    run_next_task();
+}
+
+pub fn run_first_task() {
+    TASK_MANAGER.run_first_task();
+}
+
+pub fn reocrd_sys_call(sys_call_id: usize) {
+    let mut manager = TASK_MANAGER.inner.exclusive_access();
+    let current = manager.current_task;
+    manager.tasks[current].syscall_times[sys_call_id] += 1;
+}
+
+pub fn get_task_info(ti: *mut TaskInfo) {
+    let mamger = TASK_MANAGER.inner.exclusive_access();
+    let current = &mamger.tasks[mamger.current_task];
+
+
+    unsafe {
+        (*ti).status = current.task_status;
+        (*ti).time = get_time_ms() - current.time;
+        (*ti).syscall_times = current.syscall_times.clone();
+    }
+}
+
 impl TaskManager {
     fn mark_current_suspended(&self) {
         let mut inner = self.inner.exclusive_access();
@@ -48,6 +81,9 @@ impl TaskManager {
             let mut inner = self.inner.exclusive_access();
             let current = inner.current_task;
             inner.tasks[next].task_status = TaskStatus::Running;
+            if inner.tasks[next].time == 0 {
+                inner.tasks[next].time = get_time_ms();
+            }
             inner.current_task = next;
             let current_task_cx_ptr = &mut inner.tasks[current].task_cx as *mut TaskContext;
             let next_task_cx_ptr = &inner.tasks[next].task_cx as *const TaskContext;
@@ -71,6 +107,7 @@ impl TaskManager {
     fn run_first_task(&self) -> ! {
         let mut inner = self.inner.exclusive_access();
         let task0 = &mut inner.tasks[0];
+        task0.time = get_time_ms();
         task0.task_status = TaskStatus::Running;
         let next_task_cx_ptr = &task0.task_cx as *const TaskContext;
         drop(inner);
@@ -91,6 +128,8 @@ lazy_static! {
         let mut tasks = [TaskControlBlock {
             task_cx: TaskContext::zero_init(),
             task_status: task::TaskStatus::UnInit,
+            syscall_times:[0; MAX_SYSCALL_NUM],
+            time:0,
         }; MAX_APP_NUM];
         for (i, t) in tasks.iter_mut().enumerate().take(num_app) {
             t.task_cx = TaskContext::goto_restore(init_app_cx(i));
@@ -106,18 +145,4 @@ lazy_static! {
             },
         }
     };
-}
-
-pub fn suspend_current_and_run_next() {
-    mark_current_suspended();
-    run_next_task();
-}
-
-pub fn exit_current_and_run_next() {
-    mark_current_exited();
-    run_next_task();
-}
-
-pub fn run_first_task() {
-    TASK_MANAGER.run_first_task();
 }
